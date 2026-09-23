@@ -1,1 +1,0 @@
-Hello, I am testing the speaker module for the Voice Recognization.
