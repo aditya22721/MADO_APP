@@ -1,0 +1,16 @@
+# Audio recording
+sounddevice
+soundfile
+numpy
+
+# Speech-to-Text
+faster-whisper
+
+# Speaker Recognition
+speechbrain>=1.0.0
+torch>=2.0.0
+torchaudio>=2.0.0
+torchcodec==0.15.0
+
+#Voice Clonging 
+coqui-tts==0.27.5
