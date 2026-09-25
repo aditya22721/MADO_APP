@@ -1,102 +1,30 @@
-# ==========================================
-# MADO PROJECT — GITIGNORE
-# ==========================================
-
-# ---------- SECRETS (NEVER COMMIT) ----------
+# Secrets — NEVER commit
 .env
-.env.local
-.env.*.local
-*.env
+backend/.env
 
-# ---------- PYTHON BACKEND ----------
+# Python
 backend/venv/
-backend/env/
 backend/__pycache__/
 backend/**/__pycache__/
-backend/*.py[cod]
-backend/*$py.class
-backend/*.so
-backend/.Python
-backend/build/
-backend/dist/
-backend/*.egg-info/
-backend/.installed.cfg
-backend/*.egg
-backend/.pytest_cache/
-backend/.mypy_cache/
-backend/.coverage
-backend/htmlcov/
+*.pyc
 
-# ---------- DATABASE ----------
+# Database
 *.db
-*.sqlite
-*.sqlite3
 backend/mediguide.db
-backend/*.db
 
-# ---------- FLUTTER / DART ----------
+# Flutter
 .dart_tool/
-.packages
-.pub-cache/
-.pub/
 build/
 .flutter-plugins
-.flutter-plugins-dependencies
-*.iml
 
-# ---------- ANDROID ----------
+# Android
 android/.gradle/
-android/.idea/
-android/app/debug/
-android/app/profile/
-android/app/release/
 android/local.properties
-android/key.properties
-android/*.jks
-android/*.keystore
-android/captures/
-android/gradle/wrapper/gradle-wrapper.jar
 
-# ---------- iOS ----------
-ios/Pods/
-ios/.symlinks/
-ios/Flutter/Flutter.framework
-ios/Flutter/Flutter.podspec
-ios/Flutter/App.framework
-ios/Flutter/ephemeral/
-ios/Flutter/Generated.xcconfig
-ios/Flutter/flutter_export_environment.sh
-ios/Runner/GeneratedPluginRegistrant.*
-ios/Podfile.lock
-
-# ---------- WEB ----------
-web/.dart_tool/
-
-# ---------- DESKTOP ----------
-linux/flutter/ephemeral/
-macos/Flutter/ephemeral/
-windows/flutter/ephemeral/
-
-# ---------- IDE ----------
+# IDE
 .vscode/
 .idea/
-*.swp
-*.swo
-*~
 
-# ---------- OS ----------
+# OS
 .DS_Store
 Thumbs.db
-desktop.ini
-
-# ---------- LOGS ----------
-*.log
-logs/
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-
-# ---------- TEMP ----------
-tmp/
-temp/
-uploads/

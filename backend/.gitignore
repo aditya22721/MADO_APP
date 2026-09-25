@@ -56,3 +56,7 @@ desktop.ini
 uploads/
 temp/
 tmp/
+
+# EV_RAG large data
+services/ev_rag/data/entities/*.json
+!services/ev_rag/data/entities/.gitkeep

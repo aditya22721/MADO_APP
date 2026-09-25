@@ -7,6 +7,13 @@ from typing import Optional
 from services.gemini_api import GeminiService
 
 try:
+    from services.ev_rag.qa_service import EVRAGService
+    EV_RAG_AVAILABLE = True
+except Exception as e:
+    EV_RAG_AVAILABLE = False
+    print(f"⚠️ EV_RAG unavailable: {e}")
+
+try:
     import wikipedia
     WIKI_OK = True
 except ImportError:
@@ -14,9 +21,36 @@ except ImportError:
     print("⚠️ wikipedia-api not installed")
 
 
+# EV detection
+EV_STRONG = [
+    "kia", "ev3", "ev5", "ev6", "ev9", "e-niro", "niro",
+    "regenerative braking", "regen braking", "battery level",
+    "charging port", "ac charging", "dc charging",
+    "smart key", "owners manual", "owner's manual",
+    "electric vehicle", "electric car",
+]
+EV_MEDIUM = ["battery", "charging", "charge", "range", "kwh", "motor", "hybrid", "infotainment", "warranty"]
+EV_WEAK = ["ev", "kw"]
+
+
+def _ev_score(q: str) -> int:
+    score = 0
+    for kw in EV_STRONG:
+        if kw in q:
+            score += 10
+    for kw in EV_MEDIUM:
+        if kw in q:
+            score += 3
+    for kw in EV_WEAK:
+        if kw in q:
+            score += 1
+    return score
+
+
 class KnowledgeService:
     def __init__(self):
         self.gemini = GeminiService()
+        self.ev_rag = EVRAGService() if EV_RAG_AVAILABLE else None
 
         self.local = {
             "capital of france": "Paris is the capital of France.",
@@ -42,6 +76,7 @@ class KnowledgeService:
             "general": "🚨 EMERGENCY:\n1. STAY CALM\n2. CALL 911 / 112 / 999\n3. Stay with them",
         }
 
+    # =============================================================
     def get_response(self, question: str) -> str:
         q = question.lower().strip()
         print(f"\n🔍 Q: {question}")
@@ -80,14 +115,50 @@ class KnowledgeService:
                 pass
             return "🌤️ Weather service unavailable."
 
-        # 3. DUCKDUCKGO — try always (works for many "how to" queries too)
+                # 3. EV_RAG — route + rewrite with AI for clean output
+        ev_score = _ev_score(q)
+        if ev_score > 0:
+            print(f"  🚗 EV score: {ev_score}")
+
+        if self.ev_rag and ev_score >= 3:
+            print("  🚗 Trying EV_RAG...")
+            try:
+                result = self.ev_rag.ask(question)
+                if result:
+                    conf = result.get("confidence", "low")
+                    print(f"  ✅ EV_RAG ({result['score']}, {conf})")
+
+                    # Ask AI to answer using chunks + its own knowledge
+                    cleaned, used_manual = self._rewrite_ev_answer(
+                        question=question,
+                        raw_answer=result["answer"],
+                        manual=result.get("manual", "EV manual"),
+                    )
+
+                    if cleaned:
+                        print("  ✨ AI cleaned up the answer")
+                        response = f"🚗 {cleaned}"
+
+                        # Only show source if manual was actually used
+                        if used_manual and result.get("page_start"):
+                            response += (
+                                f"\n\n📖 Source: {result.get('manual', 'EV manual')} "
+                                f"(page {result['page_start']})"
+                            )
+                        return response
+
+                    return EVRAGService.format_answer(result)
+            except Exception as e:
+                print(f"  ❌ EV_RAG error: {e}")
+
+        # 4. DUCKDUCKGO
         print("  🦆 Trying DuckDuckGo...")
         ddg = self._duckduckgo(q)
         if ddg:
             print("  ✅ DDG answered")
             return ddg
 
-        # 4. WIKIPEDIA — try always
+        # 5. WIKIPEDIA
         if WIKI_OK:
             print("  📚 Trying Wikipedia...")
             wiki = self._wikipedia(q)
@@ -95,14 +166,14 @@ class KnowledgeService:
                 print("  ✅ Wiki answered")
                 return wiki
 
-        # 5. AI (OpenRouter) — always last resort
+        # 6. AI
         print("  🤖 Trying AI (OpenRouter)...")
         ai = self.gemini.get_response(question)
         if ai:
             print("  ✅ AI answered")
             return f"🤖 {ai}"
 
-        # 6. Math
+        # 7. Math
         try:
             expr = re.sub(r"[^0-9+\-*/(). ]", "", question)
             if any(op in expr for op in "+-*/") and len(expr) < 40:
@@ -112,9 +183,72 @@ class KnowledgeService:
 
         return "🤔 I couldn't find a reliable answer. Try rephrasing."
 
-    # =========================================================
+        def _rewrite_ev_answer(self, question: str, raw_answer: str, manual: str):
+            """Returns (answer_text, used_manual_flag)."""
+        from services.ev_rag.text_cleaner import clean_answer
+
+        all_chunks = []
+        if self.ev_rag:
+            for entry in self.ev_rag.retrievers:
+                try:
+                    results = entry["retriever"].search(question, top_k=6)
+                    for r in results:
+                        chunk = r["chunk"]
+                        text = chunk.get("text", "").strip()
+                        if not text or len(text) < 50:
+                            continue
+                        if "table of contents" in text.lower()[:100]:
+                            continue
+                        all_chunks.append({
+                            "text": clean_answer(text)[:1500],
+                            "heading": chunk.get("heading", ""),
+                            "page": chunk.get("page_start") or chunk.get("page"),
+                            "manual": entry["name"],
+                            "score": r["final_score"],
+                        })
+                except Exception as e:
+                    print(f"  ⚠️ Retrieval: {e}")
+
+        all_chunks.sort(key=lambda c: c["score"], reverse=True)
+        top_chunks = all_chunks[:5]
+
+        if top_chunks:
+            context = "\n\n---\n\n".join(
+                f"[{c['manual']} | {c['heading']} | p.{c['page']}]\n{c['text']}"
+                for c in top_chunks
+            )[:6000]
+        else:
+            context = "(No relevant excerpts found.)"
+
+        prompt = f"""You are MADO, an expert assistant for Kia electric vehicles.
+
+Question: "{question}"
+
+RELEVANT MANUAL EXCERPTS:
+{context}
+
+Instructions:
+1. First, try to answer using the excerpts above.
+2. If the excerpts clearly answer the question, base your answer on them and START your response with: [MANUAL]
+3. If the excerpts don't contain the answer, use your own knowledge to answer. START your response with: [GENERAL]
+4. Give a clear answer in 2-5 sentences.
+5. Fix broken words, missing spaces, weird symbols.
+
+Answer:"""
+
+        try:
+            raw = self.gemini.get_response(prompt)
+            if not raw:
+                return None, False
+
+            used_manual = raw.startswith("[MANUAL]")
+            # Remove the marker
+            cleaned = raw.replace("[MANUAL]", "").replace("[GENERAL]", "").strip()
+            return cleaned, used_manual
+        except Exception:
+            return None, False
+    # =============================================================
     def _duckduckgo(self, q: str) -> Optional[str]:
-        """Try both raw question and extracted topic."""
         try:
             topic = self._extract_topic(q)
             for query in [q, topic]:
@@ -134,8 +268,8 @@ class KnowledgeService:
                             return f"🦆 {t['Text']}"
                 except Exception:
                     continue
-        except Exception as e:
-            print(f"  ❌ DDG: {e}")
+        except Exception:
+            pass
         return None
 
     def _wikipedia(self, q: str) -> Optional[str]:
@@ -157,8 +291,8 @@ class KnowledgeService:
                         return f"📚 {wikipedia.summary(r, sentences=6)}"
                     except Exception:
                         continue
-        except Exception as e:
-            print(f"  ❌ Wiki: {e}")
+        except Exception:
+            pass
         return None
 
     def _extract_topic(self, q: str) -> str:
